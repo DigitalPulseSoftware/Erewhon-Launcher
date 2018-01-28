@@ -15,12 +15,13 @@ newaction {
 	shortname = "Generate the manifest file",
 	description = "Parse all files in the ../Utopia-Game folder and write them in a manifest file",
 	execute = function ()
-		local gameDirectory = "../../Utopia-Game"
+		local gameDirectory = "../../Utopia-Content"
 
 		local manifest = {}
 		manifest.Files = {}
 
 		for k,v in pairs(os.matchfiles(gameDirectory .. "/**")) do
+			print("Processing " .. v)
 			local content = io.readfile(v)
 			table.insert(manifest.Files, {path = path.getrelative(gameDirectory, v), size = #content, hash = sha1(content)})
 		end

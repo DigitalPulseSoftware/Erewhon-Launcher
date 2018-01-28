@@ -17,7 +17,8 @@
 #include <QtWidgets/QVBoxLayout>
 #include <iostream>
 
-MainWindow::MainWindow()
+MainWindow::MainWindow() :
+m_isUpdating(false)
 {
 	resize(1024, 768);
 	
@@ -41,8 +42,11 @@ MainWindow::MainWindow()
 	m_progressBar = new QProgressBar;
 	bottomLayout->addWidget(m_progressBar);
 
-	QPushButton* startButton = new QPushButton("Play");
-	bottomLayout->addWidget(startButton);
+	m_startButton = new QPushButton("Play");
+	connect(m_startButton, &QPushButton::pressed, [this]() { OnStartButtonPressed(); });
+	bottomLayout->addWidget(m_startButton);
+
+	m_startButton->setEnabled(false);
 
 	mainLayout->addLayout(bottomLayout);
 
@@ -51,11 +55,22 @@ MainWindow::MainWindow()
 	m_statusLabel->setText("<b>Downloading news feed...</b>");
 
 	DownloadNewsFeed();
-	StartUpdateProcess();
+	DownloadManifest();
 }
 
 MainWindow::~MainWindow()
 {
+}
+
+void MainWindow::DownloadManifest()
+{
+	QByteArray* buffer = new QByteArray;
+
+	QNetworkRequest request(QUrl("https://utopia.digitalpulsesoftware.net/manifest"));
+	QNetworkReply* download = m_network.get(request);
+	connect(download, (void (QNetworkReply::*)(QNetworkReply::NetworkError)) &QNetworkReply::error, [this, download, buffer](QNetworkReply::NetworkError /*code*/) { buffer->clear(); OnManifestDownloadError(download); });
+	connect(download, &QNetworkReply::finished, [this, download, buffer]() { download->deleteLater(); OnManifestDownloaded(*buffer); delete buffer; });
+	connect(download, &QNetworkReply::readyRead, [this, download, buffer]() { buffer->append(download->readAll()); });
 }
 
 void MainWindow::DownloadNewsFeed()
@@ -67,26 +82,33 @@ void MainWindow::DownloadNewsFeed()
 	//connect(download, &QNetworkReply::readyRead, [this, download] () { m_newsWidget->append(download->readAll()); });
 }
 
-void MainWindow::StartUpdateProcess()
+void MainWindow::OnFileDownloadFinish(QFile* fileOutput)
 {
-	QByteArray* buffer = new QByteArray;
+	m_downloadedSize += fileOutput->size();
+	delete fileOutput;
 
-	QNetworkRequest request(QUrl("https://utopia.digitalpulsesoftware.net/manifest"));
-	QNetworkReply* download = m_network.get(request);
-	connect(download, (void (QNetworkReply::*)(QNetworkReply::NetworkError)) &QNetworkReply::error, [this, download, buffer] (QNetworkReply::NetworkError /*code*/) { buffer->clear(); OnManifestDownloadError(download); });
-	connect(download, &QNetworkReply::downloadProgress, [this, download] (qint64 bytesReceived, qint64 bytesTotal) { m_progressBar->setValue(100 * bytesTotal / std::max(bytesReceived, qint64(1))); });
-	connect(download, &QNetworkReply::finished, [this, download, buffer] () { download->deleteLater(); OnManifestDownloaded(*buffer); delete buffer; });
-	connect(download, &QNetworkReply::readyRead, [this, download, buffer] () { buffer->append(download->readAll()); });
+	m_currentDownload->deleteLater();
+	m_currentDownload = nullptr;
+
+	ProcessDownloadList();
 }
 
-void MainWindow::OnFileDownloadError(const QString& filePath, QNetworkReply* download)
+void MainWindow::OnFileDownloadError(const QString& fileName)
 {
-	m_statusLabel->setText("<b> Failed to download " + filePath + ": " + ((download) ? download->errorString() : "Failed to open file") + "</b>");
+	QString errMessage = "Failed to download " + fileName + ": " + ((m_currentDownload) ? m_currentDownload->errorString() : "Failed to open file");
+	if (m_currentDownload)
+	{
+		m_currentDownload->deleteLater();
+		m_currentDownload = nullptr;
+	}
+
+	std::cerr << errMessage.toStdString() << std::endl;
+
+	m_statusLabel->setText("<b>" + errMessage + "</b>");
 }
 
 void MainWindow::OnManifestDownloaded(const QByteArray& buffer)
 {
-	std::cout << buffer.toStdString() << std::endl;
 	QJsonParseError parseError;
 	QJsonDocument manifest = QJsonDocument::fromJson(buffer, &parseError);
 	if (manifest.isNull())
@@ -95,15 +117,18 @@ void MainWindow::OnManifestDownloaded(const QByteArray& buffer)
 		return;
 	}
 
+	// Create directories first
 	QJsonObject object = manifest.object();
 	for (const QJsonValue& entry : object["Directories"].toArray())
-		QDir().mkpath(entry.toString());
+		QDir().mkpath("content/" + entry.toString());
 
+	// And then download files
 	m_downloadList.clear();
+	m_downloadTotalSize = 0;
 	for (const QJsonValue& entry : object["Files"].toArray())
 	{
 		QJsonObject fileData = entry.toObject();
-		QString path = fileData["path"].toString();
+		QString path = "content/" + fileData["path"].toString();
 		int size = fileData["size"].toInt();
 		QString hash = fileData["hash"].toString();
 
@@ -125,18 +150,28 @@ void MainWindow::OnManifestDownloaded(const QByteArray& buffer)
 				{
 					if (hash == fileHash.result().toHex())
 						continue;
+					else
+						std::cout << "Outdated or corrupt file: " << path.toStdString() << std::endl;
 				}
 			}
 		}
-
-		// There was a problem with this file, re-download it
-		std::cout << "Invalid file:" << path.toStdString() << std::endl;
+		else
+			std::cout << "Missing file: " << path.toStdString() << std::endl;
 
 		m_downloadList.emplace_back(std::move(path));
+		m_downloadedSize = 0;
+		m_downloadTotalSize += size;
 	}
 
+	m_progressBar->setValue(0);
+
 	m_downloadCounter = 0;
-	ProcessDownloadList();
+
+	if (!m_downloadList.empty())
+	{
+		m_startButton->setText("Update");
+		m_startButton->setEnabled(true);
+	}
 }
 
 void MainWindow::OnManifestDownloadError(QNetworkReply* download)
@@ -144,31 +179,56 @@ void MainWindow::OnManifestDownloadError(QNetworkReply* download)
 	m_statusLabel->setText("<b>Failed to download manifest</b>");
 }
 
+void MainWindow::OnStartButtonPressed()
+{
+	m_startButton->setEnabled(false);
+
+	if (!m_downloadList.empty())
+	{
+		if (!m_isUpdating)
+			ProcessDownloadList();
+	}
+	else
+	{
+		// Play
+	}
+}
+
 void MainWindow::ProcessDownloadList()
 {
 	if (m_downloadCounter >= m_downloadList.size())
+	{
+		m_isUpdating = false;
+		m_startButton->setText("Start");
 		return;
+	}
 
-	QString filePath = m_downloadList[m_downloadCounter++];
+	m_isUpdating = true;
 
-	m_progressBar->setValue(0);
+	const QString& filePath = m_downloadList[m_downloadCounter++];
+
 	m_statusLabel->setText("<b> Downloading " + filePath + " (" + QString::number(m_downloadCounter) + '/' + QString::number(m_downloadList.size()) +")</b>");
 
-	QFile* fileOutput = new QFile(filePath);
-	if (!fileOutput->open(QIODevice::WriteOnly))
+	QFile* outputFile = new QFile(filePath);
+	if (!outputFile->open(QIODevice::WriteOnly))
 	{
-		OnFileDownloadError(filePath, nullptr);
-		ProcessDownloadList();
+		OnFileDownloadError(filePath);
 		return;
 	}
 
 	QNetworkRequest request { QUrl("https://utopia.digitalpulsesoftware.net/" + filePath) };
-	QNetworkReply* download = m_network.get(request);
-	connect(download, (void (QNetworkReply::*)(QNetworkReply::NetworkError)) &QNetworkReply::error, [this, download, filePath] (QNetworkReply::NetworkError /*code*/) { OnFileDownloadError(filePath, download); });
-	connect(download, &QNetworkReply::downloadProgress, [this, download] (qint64 bytesReceived, qint64 bytesTotal) { m_progressBar->setValue(100 * bytesTotal / std::max(bytesReceived, qint64(1))); });
-	connect(download, &QNetworkReply::finished, [this, download, fileOutput] () { ProcessDownloadList(); download->deleteLater(); delete fileOutput; });
-	connect(download, &QNetworkReply::readyRead, [this, download, fileOutput] () { fileOutput->write(download->readAll()); });
+	std::cout << "Downloading from " + request.url().url().toStdString() << std::endl;
+
+	m_currentDownload = m_network.get(request);
+	connect(m_currentDownload, (void (QNetworkReply::*)(QNetworkReply::NetworkError)) &QNetworkReply::error, [this, filePath] (QNetworkReply::NetworkError /*code*/) { OnFileDownloadError(filePath); });
+	connect(m_currentDownload, &QNetworkReply::downloadProgress, [this](qint64 bytesReceived, qint64 bytesTotal) { UpdateProgressBar(bytesTotal, bytesReceived); });
+	connect(m_currentDownload, &QNetworkReply::finished, [this, outputFile]() { OnFileDownloadFinish(outputFile); });
+	connect(m_currentDownload, &QNetworkReply::readyRead, [this, outputFile] () { outputFile->write(m_currentDownload->readAll()); });
 }
 
+void MainWindow::UpdateProgressBar(qint64 /*bytesTotal*/, qint64 bytesReceived)
+{
+	m_progressBar->setValue(100 * (m_downloadedSize + bytesReceived) / std::max(m_downloadTotalSize, qint64(1)));
+}
 
 //#include <Application/Widgets/MainWindow.moc>
