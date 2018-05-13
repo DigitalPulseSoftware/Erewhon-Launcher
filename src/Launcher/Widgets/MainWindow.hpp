@@ -24,17 +24,30 @@ class MainWindow : public QWidget
 		~MainWindow();
 
 	private:
+		void AddToDownloadList(QJsonObject manifest, const QString& outputFolder);
+		void AddToDownloadList(QJsonObject manifest, const QString& outputFolder, const QString& referenceFolder);
+
 		void DownloadNewsFeed();
 		void DownloadManifest();
 
-		void OnFileDownloadError(const QString& fileName);
+		void OnFileDownloadError(QNetworkReply* download, const QString& fileName);
 		void OnFileDownloadFinish(QFile* fileOutput);
 		void OnManifestDownloaded(const QByteArray& buffer);
+
 		void OnManifestDownloadError(QNetworkReply* download);
 		void OnStartButtonPressed();
 		void ProcessDownloadList();
 
+		void SetupPlayButton();
+
 		void UpdateProgressBar(qint64 bytesTotal, qint64 bytesReceived);
+
+		struct DownloadEntry
+		{
+			QString baseName;
+			QString downloadUrl;
+			QString outputFile;
+		};
 
 		QLabel* m_statusLabel;
 		QNetworkAccessManager m_network;
@@ -45,8 +58,8 @@ class MainWindow : public QWidget
 		qint64 m_downloadedSize;
 		qint64 m_downloadTotalSize;
 		std::size_t m_downloadCounter;
-		std::vector<QString> m_downloadList;
-		bool m_isUpdating;
+		std::vector<DownloadEntry> m_downloadList;
+		bool m_isUpdatingLauncher;
 };
 
 #include <Launcher/Widgets/MainWindow.inl>

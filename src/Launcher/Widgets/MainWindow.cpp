@@ -8,17 +8,19 @@
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QProcess>
 #include <QtNetwork/QNetworkReply>
+#include <QtWidgets/QApplication>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QHBoxLayout>
+#include <QtWidgets/QMessageBox>
 #include <QtWidgets/QProgressBar>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QTextEdit>
 #include <QtWidgets/QVBoxLayout>
 #include <iostream>
 
-MainWindow::MainWindow() :
-m_isUpdating(false)
+MainWindow::MainWindow()
 {
 	resize(1024, 768);
 	
@@ -41,6 +43,7 @@ m_isUpdating(false)
 
 	m_progressBar = new QProgressBar;
 	bottomLayout->addWidget(m_progressBar);
+	m_progressBar->hide();
 
 	m_startButton = new QPushButton("Play");
 	connect(m_startButton, &QPushButton::pressed, [this]() { OnStartButtonPressed(); });
@@ -52,7 +55,7 @@ m_isUpdating(false)
 
 	setLayout(mainLayout);
 
-	m_statusLabel->setText("<b>Downloading news feed...</b>");
+	m_statusLabel->setText("<b>Downloading manifest...</b>");
 
 	DownloadNewsFeed();
 	DownloadManifest();
@@ -62,11 +65,73 @@ MainWindow::~MainWindow()
 {
 }
 
+void MainWindow::AddToDownloadList(QJsonObject manifest, const QString& outputFolder)
+{
+	AddToDownloadList(manifest, outputFolder, outputFolder);
+}
+
+void MainWindow::AddToDownloadList(QJsonObject manifest, const QString& outputFolder, const QString& referenceFolder)
+{
+	QString downloadFolder = manifest["DownloadFolder"].toString();
+
+	// And then download files
+	std::size_t fileIndex = 0;
+	for (const QJsonValue& entry : manifest["Files"].toArray())
+	{
+		QJsonObject fileData = entry.toObject();
+		QString path = fileData["path"].toString();
+		int size = fileData["size"].toInt();
+		QString hash = fileData["hash"].toString();
+
+		QString referencePath = referenceFolder + '/' + path;
+
+		if (QFile::exists(referencePath))
+		{
+			QFile file(referencePath);
+			if (!file.open(QIODevice::ReadOnly))
+			{
+				std::cerr << "Failed to open: " << referencePath.toStdString() << std::endl;
+				continue;
+			}
+
+			qint64 fileSize = file.size();
+
+			if (fileSize == size)
+			{
+				QCryptographicHash fileHash(QCryptographicHash::Sha1);
+				if (fileHash.addData(&file))
+				{
+					if (hash == fileHash.result().toHex())
+						continue;
+					else
+						std::cout << "Outdated or corrupt file: " << referencePath.toStdString() << std::endl;
+				}
+			}
+		}
+		else
+			std::cout << "Missing file: " << referencePath.toStdString() << std::endl;
+
+		auto& downloadEntry = m_downloadList.emplace_back();
+		downloadEntry.baseName = path;
+		downloadEntry.downloadUrl = downloadFolder + '/' + path;
+		downloadEntry.outputFile = outputFolder + '/' + path;
+
+		m_downloadTotalSize += size;
+	}
+}
+
 void MainWindow::DownloadManifest()
 {
 	QByteArray* buffer = new QByteArray;
 
-	QNetworkRequest request(QUrl("https://utopia.digitalpulsesoftware.net/manifest"));
+	QString manifestName = "manifest";
+#if defined(Q_OS_WIN)
+	manifestName += ".windows";
+#elif defined(Q_OS_LINUX)
+	manifestName += ".linux";
+#endif
+
+	QNetworkRequest request(QUrl("https://utopia.digitalpulsesoftware.net/" + manifestName));
 	QNetworkReply* download = m_network.get(request);
 	connect(download, (void (QNetworkReply::*)(QNetworkReply::NetworkError)) &QNetworkReply::error, [this, download, buffer](QNetworkReply::NetworkError /*code*/) { buffer->clear(); OnManifestDownloadError(download); });
 	connect(download, &QNetworkReply::finished, [this, download, buffer]() { download->deleteLater(); OnManifestDownloaded(*buffer); delete buffer; });
@@ -93,18 +158,16 @@ void MainWindow::OnFileDownloadFinish(QFile* fileOutput)
 	ProcessDownloadList();
 }
 
-void MainWindow::OnFileDownloadError(const QString& fileName)
+void MainWindow::OnFileDownloadError(QNetworkReply* download, const QString& fileName)
 {
-	QString errMessage = "Failed to download " + fileName + ": " + ((m_currentDownload) ? m_currentDownload->errorString() : "Failed to open file");
-	if (m_currentDownload)
-	{
-		m_currentDownload->deleteLater();
-		m_currentDownload = nullptr;
-	}
+	m_downloadCounter--;
 
-	std::cerr << errMessage.toStdString() << std::endl;
+	QString errMessage = "Failed to download " + fileName + ": " + ((download) ? download->errorString() : "Failed to open file");
 
 	m_statusLabel->setText("<b>" + errMessage + "</b>");
+
+	m_startButton->setText("Try again");
+	m_startButton->setEnabled(true);
 }
 
 void MainWindow::OnManifestDownloaded(const QByteArray& buffer)
@@ -117,61 +180,30 @@ void MainWindow::OnManifestDownloaded(const QByteArray& buffer)
 		return;
 	}
 
-	// Create directories first
-	QJsonObject object = manifest.object();
-	for (const QJsonValue& entry : object["Directories"].toArray())
-		QDir().mkpath("content/" + entry.toString());
-
-	// And then download files
 	m_downloadList.clear();
 	m_downloadTotalSize = 0;
-	for (const QJsonValue& entry : object["Files"].toArray())
-	{
-		QJsonObject fileData = entry.toObject();
-		QString path = "content/" + fileData["path"].toString();
-		int size = fileData["size"].toInt();
-		QString hash = fileData["hash"].toString();
 
-		if (QFile::exists(path))
-		{
-			QFile file(path);
-			if (!file.open(QIODevice::ReadOnly))
-			{
-				std::cerr << "Failed to open: " << path.toStdString() << std::endl;
-				continue;
-			}
+	QJsonObject manifestObject = manifest.object();
 
-			qint64 fileSize = file.size();
+	AddToDownloadList(manifestObject["Launcher"].toObject(), "tmp", ".");
 
-			if (fileSize == size)
-			{
-				QCryptographicHash fileHash(QCryptographicHash::Sha1);
-				if (fileHash.addData(&file))
-				{
-					if (hash == fileHash.result().toHex())
-						continue;
-					else
-						std::cout << "Outdated or corrupt file: " << path.toStdString() << std::endl;
-				}
-			}
-		}
-		else
-			std::cout << "Missing file: " << path.toStdString() << std::endl;
+	// Only download game files when launcher is updated
+	m_isUpdatingLauncher = !m_downloadList.empty();
 
-		m_downloadList.emplace_back(std::move(path));
-		m_downloadedSize = 0;
-		m_downloadTotalSize += size;
-	}
-
-	m_progressBar->setValue(0);
-
-	m_downloadCounter = 0;
+	if (!m_isUpdatingLauncher)
+		AddToDownloadList(manifestObject["Game"].toObject(), "content");
 
 	if (!m_downloadList.empty())
 	{
+		m_statusLabel->setText("<b>A new update is available</b>");
+
+		m_downloadCounter = 0;
+
 		m_startButton->setText("Update");
 		m_startButton->setEnabled(true);
 	}
+	else
+		SetupPlayButton();
 }
 
 void MainWindow::OnManifestDownloadError(QNetworkReply* download)
@@ -181,16 +213,47 @@ void MainWindow::OnManifestDownloadError(QNetworkReply* download)
 
 void MainWindow::OnStartButtonPressed()
 {
-	m_startButton->setEnabled(false);
-
 	if (!m_downloadList.empty())
 	{
-		if (!m_isUpdating)
-			ProcessDownloadList();
+		m_startButton->setEnabled(false);
+		ProcessDownloadList();
+
+		m_progressBar->setValue(0);
+		m_progressBar->show();
+	}
+	else if (m_isUpdatingLauncher)
+	{
+#if defined(Q_OS_WIN)
+		QFile cmdFile("updateLauncher.bat");
+		if (!cmdFile.open(QIODevice::WriteOnly))
+		{
+			m_statusLabel->setText("Failed to open " + cmdFile.fileName());
+			m_statusLabel->show();
+			return;
+		}
+
+		cmdFile.write("timeout 1\r\n");
+		cmdFile.write("robocopy /E /MOVE tmp .\r\n");
+		cmdFile.write("start \"\" \"ErewhonLauncher.exe\"\r\n");
+
+		cmdFile.close();
+#endif
+
+		if (QProcess::startDetached(cmdFile.fileName(), {}))
+		{
+			qApp->quit();
+		}
+		else
+		{
+			m_statusLabel->setText("Failed to start " + cmdFile.fileName());
+			m_statusLabel->show();
+			return;
+		}
 	}
 	else
 	{
 		// Play
+		QMessageBox::warning(this, "Not yet implemented", "Play button is not yet implemented, launch ErewhonClient.exe in the game folder");
 	}
 }
 
@@ -198,32 +261,57 @@ void MainWindow::ProcessDownloadList()
 {
 	if (m_downloadCounter >= m_downloadList.size())
 	{
-		m_isUpdating = false;
-		m_startButton->setText("Start");
+		m_downloadList.clear();
+
+		if (m_isUpdatingLauncher)
+		{
+			m_progressBar->hide();
+			m_statusLabel->hide();
+
+			m_startButton->setText("Restart launcher");
+			m_startButton->setEnabled(true);
+		}
+		else
+			SetupPlayButton();
+
 		return;
 	}
 
-	m_isUpdating = true;
+	const auto& downloadEntry = m_downloadList[m_downloadCounter++];
 
-	const QString& filePath = m_downloadList[m_downloadCounter++];
+	m_statusLabel->setText("<b> Downloading " + downloadEntry.baseName + " (" + QString::number(m_downloadCounter) + '/' + QString::number(m_downloadList.size()) +")</b>");
 
-	m_statusLabel->setText("<b> Downloading " + filePath + " (" + QString::number(m_downloadCounter) + '/' + QString::number(m_downloadList.size()) +")</b>");
+	QFileInfo outputFileInfo(downloadEntry.outputFile);
+	if (!QDir().mkpath(outputFileInfo.dir().path()))
+	{
+		OnFileDownloadError(nullptr, outputFileInfo.dir().path());
+		return;
+	}
 
-	QFile* outputFile = new QFile(filePath);
+	QFile* outputFile = new QFile(downloadEntry.outputFile);
 	if (!outputFile->open(QIODevice::WriteOnly))
 	{
-		OnFileDownloadError(filePath);
+		OnFileDownloadError(nullptr, downloadEntry.outputFile);
 		return;
 	}
 
-	QNetworkRequest request { QUrl("https://utopia.digitalpulsesoftware.net/" + filePath) };
+	QNetworkRequest request { QUrl("https://utopia.digitalpulsesoftware.net/" + downloadEntry.downloadUrl) };
 	std::cout << "Downloading from " + request.url().url().toStdString() << std::endl;
 
 	m_currentDownload = m_network.get(request);
-	connect(m_currentDownload, (void (QNetworkReply::*)(QNetworkReply::NetworkError)) &QNetworkReply::error, [this, filePath] (QNetworkReply::NetworkError /*code*/) { OnFileDownloadError(filePath); });
+	connect(m_currentDownload, (void (QNetworkReply::*)(QNetworkReply::NetworkError)) &QNetworkReply::error, [this, filePath = downloadEntry.baseName] (QNetworkReply::NetworkError /*code*/) { OnFileDownloadError(m_currentDownload, filePath); });
 	connect(m_currentDownload, &QNetworkReply::downloadProgress, [this](qint64 bytesReceived, qint64 bytesTotal) { UpdateProgressBar(bytesTotal, bytesReceived); });
 	connect(m_currentDownload, &QNetworkReply::finished, [this, outputFile]() { OnFileDownloadFinish(outputFile); });
 	connect(m_currentDownload, &QNetworkReply::readyRead, [this, outputFile] () { outputFile->write(m_currentDownload->readAll()); });
+}
+
+void MainWindow::SetupPlayButton()
+{
+	m_progressBar->hide();
+	m_statusLabel->hide();
+
+	m_startButton->setText("Play");
+	m_startButton->setEnabled(true);
 }
 
 void MainWindow::UpdateProgressBar(qint64 /*bytesTotal*/, qint64 bytesReceived)

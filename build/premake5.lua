@@ -53,7 +53,7 @@ workspace(ProjectSettings.Name)
 	project(ProjectSettings.Name)
 		kind(ProjectSettings.Kind)
 		language("C++")
-		cppdialect("C++14")
+		cppdialect("C++17")
 
 		defines(ProjectSettings.Defines)
 		
