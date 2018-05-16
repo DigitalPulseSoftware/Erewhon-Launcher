@@ -23,7 +23,8 @@
 MainWindow::MainWindow()
 {
 	resize(1024, 768);
-	
+	setWindowTitle("Utopia Launcher v0.01");
+
 	QVBoxLayout* mainLayout = new QVBoxLayout;
 	mainLayout->addSpacing(200);
 
@@ -79,14 +80,19 @@ void MainWindow::AddToDownloadList(QJsonObject manifest, const QString& outputFo
 	for (const QJsonValue& entry : manifest["Files"].toArray())
 	{
 		QJsonObject fileData = entry.toObject();
-		QString path = fileData["path"].toString();
+		QString downloadPath = fileData["downloadPath"].toString();
+		QString targetPath = fileData["targetPath"].toString();
+		bool isProtected = fileData["protected"].toBool(false);
 		int size = fileData["size"].toInt();
 		QString hash = fileData["hash"].toString();
 
-		QString referencePath = referenceFolder + '/' + path;
+		QString referencePath = referenceFolder + '/' + targetPath;
 
 		if (QFile::exists(referencePath))
 		{
+			if (isProtected)
+				continue;
+
 			QFile file(referencePath);
 			if (!file.open(QIODevice::ReadOnly))
 			{
@@ -104,17 +110,19 @@ void MainWindow::AddToDownloadList(QJsonObject manifest, const QString& outputFo
 					if (hash == fileHash.result().toHex())
 						continue;
 					else
-						std::cout << "Outdated or corrupt file: " << referencePath.toStdString() << std::endl;
+						std::cout << "Detected outdated or corrupt file: " << referencePath.toStdString() << std::endl;
 				}
 			}
+			else
+				std::cout << "Detected outdated or corrupt file: " << referencePath.toStdString() << std::endl;
 		}
 		else
-			std::cout << "Missing file: " << referencePath.toStdString() << std::endl;
+			std::cout << "Detected missing file: " << referencePath.toStdString() << std::endl;
 
 		auto& downloadEntry = m_downloadList.emplace_back();
-		downloadEntry.baseName = path;
-		downloadEntry.downloadUrl = downloadFolder + '/' + path;
-		downloadEntry.outputFile = outputFolder + '/' + path;
+		downloadEntry.baseName = targetPath;
+		downloadEntry.downloadUrl = downloadPath;
+		downloadEntry.outputFile = outputFolder + '/' + targetPath;
 
 		m_downloadTotalSize += size;
 	}
@@ -191,11 +199,14 @@ void MainWindow::OnManifestDownloaded(const QByteArray& buffer)
 	m_isUpdatingLauncher = !m_downloadList.empty();
 
 	if (!m_isUpdatingLauncher)
-		AddToDownloadList(manifestObject["Game"].toObject(), "content");
+		AddToDownloadList(manifestObject["Game"].toObject(), "game");
 
 	if (!m_downloadList.empty())
 	{
-		m_statusLabel->setText("<b>A new update is available</b>");
+		if (m_isUpdatingLauncher)
+			m_statusLabel->setText("<b>A new launcher update is available</b>");
+		else
+			m_statusLabel->setText("<b>A new game update is available</b>");
 
 		m_downloadCounter = 0;
 
@@ -216,10 +227,12 @@ void MainWindow::OnStartButtonPressed()
 	if (!m_downloadList.empty())
 	{
 		m_startButton->setEnabled(false);
-		ProcessDownloadList();
 
+		m_downloadedSize = 0;
 		m_progressBar->setValue(0);
 		m_progressBar->show();
+
+		ProcessDownloadList();
 	}
 	else if (m_isUpdatingLauncher)
 	{
@@ -232,9 +245,19 @@ void MainWindow::OnStartButtonPressed()
 			return;
 		}
 
-		cmdFile.write("timeout 1\r\n");
-		cmdFile.write("robocopy /E /MOVE tmp .\r\n");
-		cmdFile.write("start \"\" \"ErewhonLauncher.exe\"\r\n");
+		QTextStream outputStream(&cmdFile);
+
+		outputStream << "echo \"Waiting for launcher to close\"" << "\r\n";
+		outputStream << "\r\n";
+		outputStream << ":loop" << "\r\n";
+		outputStream << "tasklist | find \" " << qApp->applicationPid() << " \" > nul" << "\r\n";
+		outputStream << "if not errorlevel 1 (" << "\r\n";
+		outputStream << "\t" << "timeout /t 1 > nul" << "\r\n";
+		outputStream << "\t" << "goto :loop" << "\r\n";
+		outputStream << ")" << "\r\n";
+		outputStream << "\r\n";
+		outputStream << "robocopy /E /MOVE tmp ." << "\r\n";
+		outputStream << R"(start "" "ErewhonLauncher.exe")" << "\r\n";
 
 		cmdFile.close();
 #endif
@@ -245,7 +268,7 @@ void MainWindow::OnStartButtonPressed()
 		}
 		else
 		{
-			m_statusLabel->setText("Failed to start " + cmdFile.fileName());
+			m_statusLabel->setText("Failed to start " + cmdFile.fileName() + ", please close the launcher and execute it");
 			m_statusLabel->show();
 			return;
 		}
@@ -266,7 +289,9 @@ void MainWindow::ProcessDownloadList()
 		if (m_isUpdatingLauncher)
 		{
 			m_progressBar->hide();
-			m_statusLabel->hide();
+
+			m_statusLabel->setText("<b>Launcher update has been downloaded</b>");
+			m_statusLabel->show();
 
 			m_startButton->setText("Restart launcher");
 			m_startButton->setEnabled(true);
