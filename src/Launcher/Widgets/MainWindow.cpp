@@ -266,10 +266,13 @@ void MainWindow::OnStartButtonPressed()
 		outputStream << "robocopy /E /MOVE tmp ." << "\r\n";
 		outputStream << R"(start "" "ErewhonLauncher.exe")" << "\r\n";
 #elif defined(Q_OS_LINUX)
-		outputStream << "echo Coucou";
+		outputStream << "#!/bin/bash\n";
+		outputStream << "echo TODO";
 #else
 #error "Unsupported OS"
 #endif
+
+		cmdFile.setPermissions(cmdFile.permissions() | QFileDevice::ExeUser);
 
 		cmdFile.close();
 
