@@ -266,7 +266,7 @@ void MainWindow::OnStartButtonPressed()
 		outputStream << "robocopy /E /MOVE tmp ." << "\r\n";
 		outputStream << R"(start "" "ErewhonLauncher.exe")" << "\r\n";
 #elif defined(Q_OS_LINUX)
-		outputStream << "echo Coucou"
+		outputStream << "echo Coucou";
 #else
 #error "Unsupported OS"
 #endif
