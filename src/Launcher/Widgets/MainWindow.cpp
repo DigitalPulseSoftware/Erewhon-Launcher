@@ -239,7 +239,7 @@ void MainWindow::OnStartButtonPressed()
 #if defined(Q_OS_WIN)
 		QFile cmdFile("updateLauncher.bat");
 #elif defined(Q_OS_LINUX)
-		QFile cmdFile("updateLauncher");
+		QFile cmdFile("updateLauncher.sh");
 #else
 #error "Unsupported OS"
 #endif
