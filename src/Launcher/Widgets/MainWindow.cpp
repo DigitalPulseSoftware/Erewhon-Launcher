@@ -238,6 +238,12 @@ void MainWindow::OnStartButtonPressed()
 	{
 #if defined(Q_OS_WIN)
 		QFile cmdFile("updateLauncher.bat");
+#elif defined(Q_OS_LINUX)
+		QFile cmdFile("updateLauncher");
+#else
+#error "Unsupported OS"
+#endif
+
 		if (!cmdFile.open(QIODevice::WriteOnly))
 		{
 			m_statusLabel->setText("Failed to open " + cmdFile.fileName());
@@ -247,6 +253,7 @@ void MainWindow::OnStartButtonPressed()
 
 		QTextStream outputStream(&cmdFile);
 
+#if defined(Q_OS_WIN)
 		outputStream << "echo \"Waiting for launcher to close\"" << "\r\n";
 		outputStream << "\r\n";
 		outputStream << ":loop" << "\r\n";
@@ -258,9 +265,13 @@ void MainWindow::OnStartButtonPressed()
 		outputStream << "\r\n";
 		outputStream << "robocopy /E /MOVE tmp ." << "\r\n";
 		outputStream << R"(start "" "ErewhonLauncher.exe")" << "\r\n";
+#elif defined(Q_OS_LINUX)
+		outputStream << "echo Coucou"
+#else
+#error "Unsupported OS"
+#endif
 
 		cmdFile.close();
-#endif
 
 		if (QProcess::startDetached(cmdFile.fileName(), {}))
 		{
