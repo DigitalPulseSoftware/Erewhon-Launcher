@@ -254,6 +254,9 @@ void MainWindow::OnStartButtonPressed()
 		QTextStream outputStream(&cmdFile);
 
 #if defined(Q_OS_WIN)
+		QString executable = cmdFile.fileName();
+		QStringList parameters = {};
+
 		outputStream << "echo \"Waiting for launcher to close\"" << "\r\n";
 		outputStream << "\r\n";
 		outputStream << ":loop" << "\r\n";
@@ -266,8 +269,15 @@ void MainWindow::OnStartButtonPressed()
 		outputStream << "robocopy /E /MOVE tmp ." << "\r\n";
 		outputStream << R"(start "" "ErewhonLauncher.exe")" << "\r\n";
 #elif defined(Q_OS_LINUX)
+		QString executable = "/bin/sh";
+		QStringList parameters = { cmdFile.fileName() };
+
 		outputStream << "#!/bin/bash\n";
-		outputStream << "echo TODO";
+		outputStream << "\n";
+		outputStream << "echo \"Waiting for launcher to close\"";
+		outputStream << "while ps -p " << qApp->applicationPid() << " > /dev/null; do sleep 1; done;";
+		outputStream << "\n";
+		outputStream << "./ErewhonLauncher";
 #else
 #error "Unsupported OS"
 #endif
@@ -276,7 +286,7 @@ void MainWindow::OnStartButtonPressed()
 
 		cmdFile.close();
 
-		if (QProcess::startDetached(cmdFile.fileName(), {}))
+		if (QProcess::startDetached(executable, parameters))
 		{
 			qApp->quit();
 		}
