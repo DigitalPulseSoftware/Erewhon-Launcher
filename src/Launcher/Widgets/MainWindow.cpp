@@ -277,7 +277,8 @@ void MainWindow::OnStartButtonPressed()
 		outputStream << "echo \"Waiting for launcher to close\"" << '\n';
 		outputStream << "while ps -p " << qApp->applicationPid() << " > /dev/null; do sleep 1; done;" << '\n';
 		outputStream << '\n';
-		outputStream << "mv -f tmp/* .";
+		outputStream << "mv -f tmp/* ." << '\n';
+		outputStream << "rmdir tmp" << '\n';
 		outputStream << '\n';
 		outputStream << "./ErewhonLauncher" << '\n';
 #else
