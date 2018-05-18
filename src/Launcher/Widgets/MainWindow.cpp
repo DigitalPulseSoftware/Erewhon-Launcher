@@ -272,12 +272,14 @@ void MainWindow::OnStartButtonPressed()
 		QString executable = "/bin/sh";
 		QStringList parameters = { cmdFile.fileName() };
 
-		outputStream << "#!/bin/bash\n";
-		outputStream << "\n";
-		outputStream << "echo \"Waiting for launcher to close\"";
-		outputStream << "while ps -p " << qApp->applicationPid() << " > /dev/null; do sleep 1; done;";
-		outputStream << "\n";
-		outputStream << "./ErewhonLauncher";
+		outputStream << "#!/bin/bash" << '\n';
+		outputStream << '\n';
+		outputStream << "echo \"Waiting for launcher to close\"" << '\n';
+		outputStream << "while ps -p " << qApp->applicationPid() << " > /dev/null; do sleep 1; done;" << '\n';
+		outputStream << '\n';
+		outputStream << "mv -f tmp/* .";
+		outputStream << '\n';
+		outputStream << "./ErewhonLauncher" << '\n';
 #else
 #error "Unsupported OS"
 #endif
