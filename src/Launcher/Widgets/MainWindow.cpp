@@ -82,18 +82,25 @@ void MainWindow::AddToDownloadList(QJsonObject manifest, const QString& outputFo
 		QJsonObject fileData = entry.toObject();
 		QString downloadPath = fileData["downloadPath"].toString();
 		QString targetPath = fileData["targetPath"].toString();
+		bool isExecutable = fileData["executable"].toBool(false);
 		bool isProtected = fileData["protected"].toBool(false);
 		int size = fileData["size"].toInt();
 		QString hash = fileData["hash"].toString();
 
 		QString referencePath = referenceFolder + '/' + targetPath;
 
-		if (QFile::exists(referencePath))
+		QFile file(referencePath);
+		if (file.exists())
 		{
+			if (isExecutable && (file.permissions() & QFileDevice::ExeUser == 0))
+			{
+				std::cout << referencePath.toStdString() << " is now executable" << std::endl;
+				file.setPermissions(file.permissions() | QFileDevice::ExeUser);
+			}
+
 			if (isProtected)
 				continue;
 
-			QFile file(referencePath);
 			if (!file.open(QIODevice::ReadOnly))
 			{
 				std::cerr << "Failed to open: " << referencePath.toStdString() << std::endl;
@@ -122,6 +129,7 @@ void MainWindow::AddToDownloadList(QJsonObject manifest, const QString& outputFo
 		auto& downloadEntry = m_downloadList.emplace_back();
 		downloadEntry.baseName = targetPath;
 		downloadEntry.downloadUrl = downloadPath;
+		downloadEntry.executable = isExecutable;
 		downloadEntry.outputFile = outputFolder + '/' + targetPath;
 
 		m_downloadTotalSize += size;
@@ -346,6 +354,9 @@ void MainWindow::ProcessDownloadList()
 		OnFileDownloadError(nullptr, downloadEntry.outputFile);
 		return;
 	}
+
+	if (downloadEntry.executable)
+		outputFile->setPermissions(outputFile->permissions() | QFileDevice::ExeUser);
 
 	QNetworkRequest request { QUrl("https://utopia.digitalpulsesoftware.net/" + downloadEntry.downloadUrl) };
 	std::cout << "Downloading from " + request.url().url().toStdString() << std::endl;

@@ -38,6 +38,14 @@ local function GenerateManifest(baseDirectory, manifestInfo, previousManifest)
 			end
 		end
 
+		local executableContent = {}
+		if (contentInfo.ExecutableFiles) then
+			for k,fileName in pairs(contentInfo.ExecutableFiles) do
+				local targetPath = contentInfo.TargetPath .. "/" .. fileName
+				executableContent[targetPath] = true
+			end
+		end
+
 		local folder = baseDirectory .. "/" .. contentInfo.ContentDirectory
 		for k,filePath in pairs(os.matchfiles(folder .. "/**")) do
 			--print("Processing " .. filePath)
@@ -55,6 +63,10 @@ local function GenerateManifest(baseDirectory, manifestInfo, previousManifest)
 
 			if (contentProtected[entry.targetPath]) then
 				entry.protected = true
+			end
+
+			if (executableContent[entry.targetPath]) then
+				entry.executable = true
 			end
 
 			table.insert(manifest.Files, entry)
