@@ -92,9 +92,9 @@ void MainWindow::AddToDownloadList(QJsonObject manifest, const QString& outputFo
 		QFile file(referencePath);
 		if (file.exists())
 		{
-			if (isExecutable && (file.permissions() & QFileDevice::ExeUser == 0))
+			if (isExecutable && !file.permissions().testFlag(QFileDevice::ExeUser))
 			{
-				std::cout << referencePath.toStdString() << " is now executable" << std::endl;
+				std::cout << "Marking " << referencePath.toStdString() << " as executable" << std::endl;
 				file.setPermissions(file.permissions() | QFileDevice::ExeUser);
 			}
 
