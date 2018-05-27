@@ -47,6 +47,7 @@ class MainWindow : public QWidget
 			QString baseName;
 			QString downloadUrl;
 			QString outputFile;
+			bool executable = false;
 		};
 
 		QLabel* m_statusLabel;
