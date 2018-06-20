@@ -20,8 +20,7 @@ class MainWindow : public QWidget
 {
 	public:
 		MainWindow();
-
-		~MainWindow();
+		~MainWindow() = default;
 
 	private:
 		void AddToDownloadList(QJsonObject manifest, const QString& outputFolder);

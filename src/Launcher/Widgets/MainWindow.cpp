@@ -62,10 +62,6 @@ MainWindow::MainWindow()
 	DownloadManifest();
 }
 
-MainWindow::~MainWindow()
-{
-}
-
 void MainWindow::AddToDownloadList(QJsonObject manifest, const QString& outputFolder)
 {
 	AddToDownloadList(manifest, outputFolder, outputFolder);
@@ -323,7 +319,7 @@ void MainWindow::OnStartButtonPressed()
 			qApp->quit();
 		}
 		else
-			QMessageBox::warning(this, "Failed to start game", "Failed to start Utopia, launch ErewhonClient.exe in the game folder");
+			QMessageBox::warning(this, "Failed to start game", "Failed to start Utopia, launch " + executableInfo.fileName() + " in the game folder");
 	}
 }
 
