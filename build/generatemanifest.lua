@@ -25,6 +25,7 @@ local function GenerateManifest(baseDirectory, manifestInfo, previousManifest)
 	end
 
 	local manifest = {}
+	manifest.AppBinary = manifestInfo.AppBinary
 	manifest.Directories = {}
 	manifest.Files = {}
 

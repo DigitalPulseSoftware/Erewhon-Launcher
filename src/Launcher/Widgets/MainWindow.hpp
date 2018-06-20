@@ -50,8 +50,9 @@ class MainWindow : public QWidget
 			bool executable = false;
 		};
 
-		QLabel* m_statusLabel;
 		QNetworkAccessManager m_network;
+		QString m_gameExecutablePath;
+		QLabel* m_statusLabel;
 		QNetworkReply* m_currentDownload;
 		QProgressBar* m_progressBar;
 		QPushButton* m_startButton;

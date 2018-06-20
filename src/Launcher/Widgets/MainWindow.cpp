@@ -209,6 +209,8 @@ void MainWindow::OnManifestDownloaded(const QByteArray& buffer)
 	if (!m_isUpdatingLauncher)
 		AddToDownloadList(manifestObject["Game"].toObject(), "game");
 
+	m_gameExecutablePath = manifestObject["Game"].toObject()["AppBinary"].toString();
+
 	if (!m_downloadList.empty())
 	{
 		if (m_isUpdatingLauncher)
@@ -310,8 +312,18 @@ void MainWindow::OnStartButtonPressed()
 	}
 	else
 	{
+		if (m_gameExecutablePath.isEmpty())
+			return;
+
+		QFileInfo executableInfo(m_gameExecutablePath);
+		
 		// Play
-		QMessageBox::warning(this, "Not yet implemented", "Play button is not yet implemented, launch ErewhonClient.exe in the game folder");
+		if (QProcess::startDetached(m_gameExecutablePath, {}, executableInfo.dir().path()))
+		{
+			qApp->quit();
+		}
+		else
+			QMessageBox::warning(this, "Failed to start game", "Failed to start Utopia, launch ErewhonClient.exe in the game folder");
 	}
 }
 
