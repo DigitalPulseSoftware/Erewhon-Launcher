@@ -320,7 +320,7 @@ void MainWindow::OnStartButtonPressed()
 		if (m_gameExecutablePath.endsWith(".sh"))
 		{
 			executable = "/bin/sh";
-			parameters = { m_gameExecutablePath };
+			parameters.push_back(m_gameExecutablePath);
 		}
 		else
 			executable = m_gameExecutablePath;
