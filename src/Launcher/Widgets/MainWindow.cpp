@@ -311,10 +311,25 @@ void MainWindow::OnStartButtonPressed()
 		if (m_gameExecutablePath.isEmpty())
 			return;
 
+		QString executable;
+		QStringList parameters;
+
+#if defined(Q_OS_WIN)
+		executable = m_gameExecutablePath;
+#elif defined(Q_OS_LINUX)
+		if (m_gameExecutablePath.endsWith(".sh"))
+		{
+			executable = "/bin/sh";
+			parameters = { m_gameExecutablePath };
+		}
+		else
+			executable = m_gameExecutablePath;
+#endif
+
 		QFileInfo executableInfo(m_gameExecutablePath);
-		
+
 		// Play
-		if (QProcess::startDetached(m_gameExecutablePath, {}, executableInfo.dir().path()))
+		if (QProcess::startDetached(executable, parameters, executableInfo.dir().path()))
 		{
 			qApp->quit();
 		}
